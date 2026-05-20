@@ -1542,21 +1542,42 @@ function parseEXIF(buffer) {
   return {};
 }
 
-// Compress + convert file to base64 dataURL
-function compressImage(file, maxW = 600) {
+// Read file as base64 via FileReader — most reliable on iOS Safari
+function readFileAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload  = e => res(e.target.result);
+    reader.onerror = e => rej(e);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Compress via canvas after FileReader load — with iOS fallback
+function compressImage(file, maxW = 800) {
   return new Promise(res => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const ratio = Math.min(1, maxW / img.width);
-      const canvas = document.createElement("canvas");
-      canvas.width  = Math.round(img.width  * ratio);
-      canvas.height = Math.round(img.height * ratio);
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      res(canvas.toDataURL("image/jpeg", 0.6));
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const ratio  = Math.min(1, maxW / img.width);
+          const canvas = document.createElement("canvas");
+          canvas.width  = Math.round(img.width  * ratio);
+          canvas.height = Math.round(img.height * ratio);
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataURL = canvas.toDataURL("image/jpeg", 0.7);
+          // Canvas can return blank on iOS if too large — fall back to original
+          res(dataURL.length > 1000 ? dataURL : e.target.result);
+        } catch(_) {
+          res(e.target.result); // fallback to original
+        }
+      };
+      img.onerror = () => res(e.target.result);
+      img.src = e.target.result;
     };
-    img.src = url;
+    reader.onerror = () => res(null);
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1611,22 +1632,28 @@ function MemoryPhotoCard() {
   }, []);
 
   async function handleFiles(e) {
+    // Snapshot files immediately — iOS Safari loses the FileList if you await first
     const files = Array.from(e.target.files || []);
-    // Reset input immediately so Safari allows re-selection later
-    setInputKey(k => k + 1);
+    setInputKey(k => k + 1); // reset input for next use
     if (!files.length) return;
     setAdding(true);
     const newRecords = [];
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       setProgress(`Saving ${i + 1} of ${files.length}…`);
       try {
+        // Step 1: compress (uses FileReader internally, reliable on iOS)
         const dataURL = await compressImage(file);
+        if (!dataURL) { console.warn("No dataURL for file", file.name); continue; }
+
+        // Step 2: try EXIF (best effort, never blocks save)
         let exif = {};
         try {
           const buf = await file.arrayBuffer();
           exif = parseEXIF(buf);
         } catch(_) {}
+
         const record = {
           id:        Date.now() + i,
           dataURL,
@@ -1635,20 +1662,35 @@ function MemoryPhotoCard() {
           lat:       exif.lat != null ? exif.lat : null,
           lon:       exif.lon != null ? exif.lon : null,
         };
+
+        // Step 3: save to IndexedDB
         await dbPut(record);
         newRecords.push(record);
+        // Update UI after each photo so user sees progress
         setAll(prev => [...prev, record]);
-      } catch (err) { console.error("Photo error:", err); }
+        if (newRecords.length === 1) {
+          // Show first photo immediately
+          setPhoto(record);
+        }
+      } catch (err) {
+        console.error("Photo import error:", err);
+      }
     }
+
     setProgress("");
     setAdding(false);
-    const updated = await dbGetAll();
-    setAll(updated);
-    if (updated.length > 0) {
-      const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % updated.length);
-      setPhoto(updated[idx]);
-    }
-    // Geocode in background
+
+    // Final refresh from DB
+    try {
+      const all = await dbGetAll();
+      setAll(all);
+      if (all.length > 0) {
+        const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % all.length);
+        setPhoto(all[idx]);
+      }
+    } catch(_) {}
+
+    // Geocode in background — non-blocking
     for (const record of newRecords) {
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
