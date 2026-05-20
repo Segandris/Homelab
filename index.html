@@ -1972,202 +1972,109 @@ function HomeScreen({data,navigate,setTrips,persist}){
   ];
 
   return(
-    <div style={{paddingBottom:"8px"}}>
+    <div style={{paddingBottom:"24px"}}>
 
-      {/* ── Quote ──────────────────────────────────────────────────── */}
-      <div style={{
-        marginBottom:"28px",
-        padding:"14px 16px",
-        background:"rgba(59,130,246,0.06)",
-        borderRadius:"14px",
-        borderLeft:`2px solid ${C.blue}`,
-      }}>
-        <div style={{fontSize:"11px",fontWeight:"700",letterSpacing:"0.1em",color:C.blue,marginBottom:"5px",opacity:0.8}}>TODAY</div>
-        <div style={{fontSize:"14px",fontWeight:"500",color:C.textMid,lineHeight:1.5,fontStyle:"italic"}}>"{quote}"</div>
+      {/* ── Daily quote ─────────────────────────────────────────────── */}
+      <div style={{marginBottom:"20px",padding:"14px 0"}}>
+        <div style={{fontSize:"13px",fontWeight:"400",color:C.textMid,lineHeight:1.55,fontStyle:"italic",letterSpacing:"0.01em"}}>"{quote}"</div>
       </div>
 
       {/* ── Memory photo ───────────────────────────────────────────── */}
       <MemoryPhotoCard/>
 
-      {/* ── Trips countdown ───────────────────────────────────────── */}
-      <div style={{marginTop:"10px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
-          <div style={{fontSize:"13px",fontWeight:"700",color:C.textDim,letterSpacing:"0.06em"}}>UPCOMING TRIPS</div>
-          <button onClick={()=>setShowTripForm(!showTripForm)} style={{
-            background:showTripForm?C.surface:"none",
-            border:`1px solid ${showTripForm?C.border:C.borderHi}`,
-            borderRadius:"8px",padding:"4px 10px",
-            color:showTripForm?C.textMid:C.blue,
-            fontSize:"12px",fontWeight:"600",cursor:"pointer",fontFamily:font,
-          }}>{showTripForm?"Cancel":"+ Add trip"}</button>
-        </div>
-
-        {/* Add trip form */}
-        {showTripForm&&(
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"16px",marginBottom:"12px"}}>
-            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"10px"}}>
-              {TRIP_EMOJIS.map(e=>(
-                <button key={e} onClick={()=>setTripEmoji(e)} style={{
-                  width:"34px",height:"34px",borderRadius:"8px",fontSize:"18px",
-                  border:`1px solid ${tripEmoji===e?C.blue:C.border}`,
-                  background:tripEmoji===e?C.blueGlow:"none",
-                  cursor:"pointer",
-                }}>{e}</button>
-              ))}
-            </div>
-            <input placeholder="Trip name (e.g. Tokyo)" value={tripName} onChange={e=>setTripName(e.target.value)} style={{...field,marginBottom:"8px"}}/>
-            <input type="date" value={tripDate} onChange={e=>setTripDate(e.target.value)} style={{...field,marginBottom:"10px"}}/>
-            <button onClick={addTrip} disabled={!tripName.trim()||!tripDate} style={{
-              ...primaryBtn(C.blue),
-              opacity:(!tripName.trim()||!tripDate)?0.4:1,
-            }}>Save Trip</button>
-          </div>
-        )}
-
-        {/* Trip cards */}
-        {upcomingTrips.length===0&&!showTripForm&&(
-          <div style={{
-            background:C.card,border:`1px dashed ${C.border}`,
-            borderRadius:"16px",padding:"20px",textAlign:"center",
-          }}>
-            <div style={{fontSize:"24px",marginBottom:"6px"}}>✈️</div>
-            <div style={{fontSize:"14px",color:C.textMid}}>No trips added yet</div>
-          </div>
-        )}
-        <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-          {upcomingTrips.map(t=>{
-            const days=daysUntil(t.date);
-            const isToday=days===0;
-            const isSoon=days<=7&&days>0;
-            const accentColor=isToday?C.green:isSoon?C.orange:C.blue;
-            return(
-              <div key={t.id} style={{
-                background:C.card,
-                border:`1px solid ${isToday?C.green+"55":isSoon?C.orange+"44":C.border}`,
-                borderRadius:"16px",padding:"14px 16px",
-                display:"flex",alignItems:"center",gap:"14px",
-                transition:"all 0.18s",
-              }}>
-                <div style={{
-                  width:"48px",height:"48px",borderRadius:"14px",flexShrink:0,
-                  background:`${accentColor}18`,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:"24px",
-                }}>{t.emoji}</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:"15px",fontWeight:"700",color:C.text,marginBottom:"3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
-                  <div style={{fontSize:"12px",color:C.textMid}}>{fmtDate(t.date)}</div>
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  {isToday?(
-                    <div style={{fontSize:"15px",fontWeight:"800",color:C.green}}>Today!</div>
-                  ):(
-                    <>
-                      <div style={{fontSize:"28px",fontWeight:"800",letterSpacing:"-0.03em",color:accentColor,lineHeight:1}}>{days}</div>
-                      <div style={{fontSize:"11px",color:C.textMid,marginTop:"1px"}}>days to go</div>
-                    </>
-                  )}
-                </div>
-                <button onClick={()=>deleteTrip(t.id)} style={{...iconBtn(C.textDim),flexShrink:0}}>✕</button>
-              </div>
-            );
-          })}
-        </div>
+      {/* ── Overview stats ──────────────────────────────────────────── */}
+      <div style={{marginBottom:"6px",marginTop:"4px"}}>
+        <span style={{fontSize:"11px",fontWeight:"600",color:C.textDim,letterSpacing:"0.08em",textTransform:"uppercase"}}>Overview</span>
       </div>
 
-      {/* ── Stats grid ─────────────────────────────────────────────── */}
-      <div style={{marginBottom:"10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontSize:"13px",fontWeight:"700",color:C.textDim,letterSpacing:"0.06em"}}>OVERVIEW</div>
-      </div>
-
-      {/* Row 1 — full-width workout card */}
+      {/* Workout — full width */}
       <div onClick={()=>navigate("exercise")} style={{
         background:C.card,border:`1px solid ${C.border}`,
-        borderRadius:"20px",padding:"18px 20px",
-        marginBottom:"10px",cursor:"pointer",
-        display:"flex",alignItems:"center",gap:"16px",
-        transition:"all 0.18s",
+        borderRadius:"18px",padding:"16px 18px",
+        marginBottom:"8px",cursor:"pointer",
+        display:"flex",alignItems:"center",gap:"14px",
+        transition:"border-color 0.15s",
       }}
         onMouseOver={e=>e.currentTarget.style.borderColor=C.green}
         onMouseOut={e=>e.currentTarget.style.borderColor=C.border}
       >
         <div style={{
-          width:"52px",height:"52px",borderRadius:"16px",flexShrink:0,
-          background:C.greenDim,
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:"26px",
+          width:"44px",height:"44px",borderRadius:"12px",flexShrink:0,
+          background:"rgba(34,197,94,0.1)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",
         }}>💪</div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:"12px",color:C.textDim,fontWeight:"600",letterSpacing:"0.06em",marginBottom:"4px"}}>LAST WORKOUT</div>
-          <div style={{fontSize:"17px",fontWeight:"700",color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          <div style={{fontSize:"11px",color:C.textDim,fontWeight:"600",letterSpacing:"0.07em",marginBottom:"3px",textTransform:"uppercase"}}>Last Workout</div>
+          <div style={{fontSize:"16px",fontWeight:"600",color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",letterSpacing:"-0.01em"}}>
             {lastWorkout?lastWorkout.name:"No sessions yet"}
           </div>
-          {lastWorkout&&<div style={{fontSize:"13px",color:C.green,marginTop:"2px",fontWeight:"500"}}>{fmtRel(lastWorkout.date)}</div>}
+          {lastWorkout&&<div style={{fontSize:"12px",color:C.green,marginTop:"2px"}}>{fmtRel(lastWorkout.date)}</div>}
         </div>
-        <div style={{color:C.textDim,fontSize:"20px",flexShrink:0}}>›</div>
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke={C.textDim} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
       </div>
 
-      {/* Row 2 — two equal cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"10px"}}>
-        {/* Tasks */}
+      {/* Tasks + Habits — two columns */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"8px"}}>
         <div onClick={()=>navigate("tasks")} style={{
           background:C.card,border:`1px solid ${C.border}`,
-          borderRadius:"20px",padding:"18px",cursor:"pointer",
-          transition:"all 0.18s",
+          borderRadius:"18px",padding:"16px",cursor:"pointer",
+          transition:"border-color 0.15s",
         }}
           onMouseOver={e=>e.currentTarget.style.borderColor=C.yellow}
           onMouseOut={e=>e.currentTarget.style.borderColor=C.border}
         >
-          <div style={{fontSize:"12px",color:C.textDim,fontWeight:"600",letterSpacing:"0.06em",marginBottom:"10px"}}>TASKS</div>
-          <div style={{fontSize:"36px",fontWeight:"800",letterSpacing:"-0.03em",color:pendingTasks>0?C.yellow:C.green,lineHeight:1}}>{pendingTasks}</div>
-          <div style={{fontSize:"13px",color:C.textMid,marginTop:"4px"}}>pending</div>
+          <div style={{fontSize:"11px",color:C.textDim,fontWeight:"600",letterSpacing:"0.07em",marginBottom:"10px",textTransform:"uppercase"}}>Tasks</div>
+          <div style={{fontSize:"34px",fontWeight:"700",letterSpacing:"-0.03em",color:pendingTasks>0?C.yellow:C.green,lineHeight:1}}>{pendingTasks}</div>
+          <div style={{fontSize:"12px",color:C.textMid,marginTop:"4px"}}>pending</div>
           {overdueTasks>0&&(
-            <div style={{marginTop:"8px",padding:"4px 8px",background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:"8px",display:"inline-block"}}>
-              <span style={{fontSize:"11px",color:C.red,fontWeight:"700"}}>⚠ {overdueTasks} overdue</span>
+            <div style={{marginTop:"8px",display:"inline-flex",alignItems:"center",gap:"4px",padding:"3px 8px",background:"rgba(239,68,68,0.1)",borderRadius:"20px"}}>
+              <span style={{fontSize:"10px",color:C.red,fontWeight:"700"}}>⚠ {overdueTasks} overdue</span>
             </div>
           )}
         </div>
 
-        {/* Habits */}
         <div onClick={()=>navigate("habits")} style={{
           background:C.card,border:`1px solid ${C.border}`,
-          borderRadius:"20px",padding:"18px",cursor:"pointer",
-          transition:"all 0.18s",
+          borderRadius:"18px",padding:"16px",cursor:"pointer",
+          transition:"border-color 0.15s",
         }}
           onMouseOver={e=>e.currentTarget.style.borderColor=C.orange}
           onMouseOut={e=>e.currentTarget.style.borderColor=C.border}
         >
-          <div style={{fontSize:"12px",color:C.textDim,fontWeight:"600",letterSpacing:"0.06em",marginBottom:"10px"}}>HABITS</div>
-          <div style={{fontSize:"36px",fontWeight:"800",letterSpacing:"-0.03em",color:doneToday===habitsTotal&&habitsTotal>0?C.green:C.orange,lineHeight:1}}>{doneToday}<span style={{fontSize:"20px",color:C.textDim,fontWeight:"600"}}>/{habitsTotal}</span></div>
-          <div style={{fontSize:"13px",color:C.textMid,marginTop:"4px"}}>done today</div>
-          {topStreak>0&&<div style={{fontSize:"11px",color:C.orange,marginTop:"8px",fontWeight:"600"}}>🔥 {topStreak} day streak</div>}
+          <div style={{fontSize:"11px",color:C.textDim,fontWeight:"600",letterSpacing:"0.07em",marginBottom:"10px",textTransform:"uppercase"}}>Habits</div>
+          <div style={{fontSize:"34px",fontWeight:"700",letterSpacing:"-0.03em",color:doneToday===habitsTotal&&habitsTotal>0?C.green:C.orange,lineHeight:1}}>
+            {doneToday}<span style={{fontSize:"18px",color:C.textDim,fontWeight:"400"}}>/{habitsTotal}</span>
+          </div>
+          <div style={{fontSize:"12px",color:C.textMid,marginTop:"4px"}}>today</div>
+          {topStreak>0&&<div style={{fontSize:"11px",color:C.orange,marginTop:"8px"}}>🔥 {topStreak} day streak</div>}
         </div>
       </div>
 
-      {/* Row 3 — goals */}
+      {/* Goals */}
       {goals.length>0&&(
         <div onClick={()=>navigate("goals")} style={{
           background:C.card,border:`1px solid ${C.border}`,
-          borderRadius:"20px",padding:"18px 20px",
-          marginBottom:"10px",cursor:"pointer",
-          transition:"all 0.18s",
+          borderRadius:"18px",padding:"16px 18px",
+          marginBottom:"8px",cursor:"pointer",
+          transition:"border-color 0.15s",
         }}
           onMouseOver={e=>e.currentTarget.style.borderColor=C.purple}
           onMouseOut={e=>e.currentTarget.style.borderColor=C.border}
         >
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
-            <div style={{fontSize:"12px",color:C.textDim,fontWeight:"600",letterSpacing:"0.06em"}}>GOALS</div>
-            <div style={{fontSize:"13px",color:C.purple,fontWeight:"600"}}>{goalsComplete}/{goalsActive} done</div>
+            <div style={{fontSize:"11px",color:C.textDim,fontWeight:"600",letterSpacing:"0.07em",textTransform:"uppercase"}}>Goals</div>
+            <div style={{fontSize:"12px",color:C.purple,fontWeight:"600"}}>{goalsComplete}/{goalsActive} complete</div>
           </div>
           {goals.slice(0,3).map(g=>{
             const pct=Math.min(100,Math.round(((g.current||0)/g.target)*100));
             return(
-              <div key={g.id} style={{marginBottom:"12px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"6px"}}>
+              <div key={g.id} style={{marginBottom:"11px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"5px"}}>
                   <span style={{fontSize:"14px",color:C.text,fontWeight:"500",flex:1,paddingRight:"8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.title}</span>
-                  <span style={{fontSize:"13px",color:pct>=100?C.green:C.purple,fontWeight:"700",flexShrink:0}}>{pct}%</span>
+                  <span style={{fontSize:"12px",color:pct>=100?C.green:C.purple,fontWeight:"600",flexShrink:0}}>{pct}%</span>
                 </div>
-                <div style={{height:"4px",background:C.surface,borderRadius:"2px",overflow:"hidden"}}>
-                  <div style={{height:"100%",width:`${pct}%`,background:pct>=100?`linear-gradient(90deg,${C.green},${C.green}aa)`:`linear-gradient(90deg,${C.purple},${C.blue})`,borderRadius:"2px",transition:"width 0.4s"}}/>
+                <div style={{height:"3px",background:C.surface,borderRadius:"2px",overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${pct}%`,background:pct>=100?C.green:`linear-gradient(90deg,${C.purple},${C.blue})`,borderRadius:"2px",transition:"width 0.4s"}}/>
                 </div>
               </div>
             );
@@ -2175,6 +2082,87 @@ function HomeScreen({data,navigate,setTrips,persist}){
         </div>
       )}
 
+      {/* ── Upcoming trips ──────────────────────────────────────────── */}
+      <div style={{marginTop:"16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+          <span style={{fontSize:"11px",fontWeight:"600",color:C.textDim,letterSpacing:"0.08em",textTransform:"uppercase"}}>Upcoming Trips</span>
+          <button onClick={()=>setShowTripForm(!showTripForm)} style={{
+            background:"none",border:"none",
+            color:showTripForm?C.textMid:C.blue,
+            fontSize:"13px",fontWeight:"600",cursor:"pointer",fontFamily:font,
+          }}>{showTripForm?"Cancel":"+ Add"}</button>
+        </div>
+
+        {showTripForm&&(
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:"18px",padding:"16px",marginBottom:"10px"}}>
+            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"12px"}}>
+              {TRIP_EMOJIS.map(e=>(
+                <button key={e} onClick={()=>setTripEmoji(e)} style={{
+                  width:"36px",height:"36px",borderRadius:"9px",fontSize:"18px",
+                  border:`1px solid ${tripEmoji===e?C.blue:C.border}`,
+                  background:tripEmoji===e?"rgba(59,130,246,0.12)":"none",
+                  cursor:"pointer",transition:"all 0.12s",
+                }}>{e}</button>
+              ))}
+            </div>
+            <input placeholder="Destination" value={tripName} onChange={e=>setTripName(e.target.value)} style={{...field,marginBottom:"8px",borderRadius:"12px"}}/>
+            <input type="date" value={tripDate} onChange={e=>setTripDate(e.target.value)} style={{...field,marginBottom:"12px",borderRadius:"12px"}}/>
+            <button onClick={addTrip} disabled={!tripName.trim()||!tripDate} style={{
+              width:"100%",padding:"13px",
+              background:`linear-gradient(135deg,${C.blue},#1d4ed8)`,
+              border:"none",borderRadius:"12px",color:"#fff",
+              fontSize:"15px",fontWeight:"600",cursor:"pointer",fontFamily:font,
+              opacity:(!tripName.trim()||!tripDate)?0.4:1,
+              boxShadow:"0 4px 16px rgba(59,130,246,0.3)",
+            }}>Save Trip</button>
+          </div>
+        )}
+
+        {upcomingTrips.length===0&&!showTripForm?(
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{fontSize:"28px",marginBottom:"6px"}}>✈️</div>
+            <div style={{fontSize:"14px",color:C.textDim}}>No trips planned</div>
+          </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {upcomingTrips.map(t=>{
+              const days=daysUntil(t.date);
+              const isToday=days===0;
+              const isSoon=days<=7&&days>0;
+              const ac=isToday?C.green:isSoon?C.orange:C.blue;
+              return(
+                <div key={t.id} style={{
+                  background:C.card,
+                  border:`1px solid ${isToday?C.green+"44":isSoon?C.orange+"33":C.border}`,
+                  borderRadius:"18px",padding:"14px 16px",
+                  display:"flex",alignItems:"center",gap:"12px",
+                }}>
+                  <div style={{
+                    width:"46px",height:"46px",borderRadius:"13px",flexShrink:0,
+                    background:`${ac}14`,
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",
+                  }}>{t.emoji}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:"15px",fontWeight:"600",color:C.text,marginBottom:"2px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
+                    <div style={{fontSize:"12px",color:C.textMid}}>{fmtDate(t.date)}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginRight:"4px"}}>
+                    {isToday?(
+                      <div style={{fontSize:"14px",fontWeight:"700",color:C.green}}>Today!</div>
+                    ):(
+                      <>
+                        <div style={{fontSize:"26px",fontWeight:"700",letterSpacing:"-0.03em",color:ac,lineHeight:1}}>{days}</div>
+                        <div style={{fontSize:"10px",color:C.textMid,marginTop:"1px"}}>days</div>
+                      </>
+                    )}
+                  </div>
+                  <button onClick={()=>deleteTrip(t.id)} style={{background:"none",border:"none",color:C.textDim,cursor:"pointer",fontSize:"16px",padding:"4px",lineHeight:1,flexShrink:0}}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
     </div>
   );
