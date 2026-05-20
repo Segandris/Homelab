@@ -1605,28 +1605,23 @@ function fmtExifDate(exifStr) {
   return new Date(+y, +m - 1, +d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-// ── Debug logger ─────────────────────────────────────────────────────────────
-const _debugLogs = [];
-function dbg(...args) {
-  const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
-  _debugLogs.unshift("[" + new Date().toLocaleTimeString() + "] " + msg);
-  if (_debugLogs.length > 30) _debugLogs.pop();
-  console.log(...args);
-}
-
-// ── Memory Photo Card component ───────────────────────────────────────────
+// ── Memory Photo Card ────────────────────────────────────────────────────────
 function MemoryPhotoCard() {
-  const [photo, setPhoto]       = useState(null);
-  const [allPhotos, setAll]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [adding, setAdding]     = useState(false);
-  const [showAll, setShowAll]   = useState(false);
+  const [photo, setPhoto]     = useState(null);
+  const [allPhotos, setAll]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding]   = useState(false);
   const [progress, setProgress] = useState("");
-  const [inputKey, setInputKey] = useState(0); // reset input after each use
+  const [showAll, setShowAll] = useState(false);
+  const [inputKey, setInputKey] = useState(0);
+  const [logs, setLogs]       = useState([]);
+  const [showLogs, setShowLogs] = useState(false);
   const fileRef = React.useRef(null);
 
-  function pickPhotos() {
-    if (fileRef.current) fileRef.current.click();
+  function log(msg) {
+    const entry = new Date().toLocaleTimeString() + " " + msg;
+    console.log(entry);
+    setLogs(prev => [entry, ...prev].slice(0, 20));
   }
 
   useEffect(() => {
@@ -1637,27 +1632,31 @@ function MemoryPhotoCard() {
         setPhoto(photos[idx]);
       }
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(e => { log("DB load error: " + e); setLoading(false); });
   }, []);
 
+  function pickPhotos() {
+    if (fileRef.current) fileRef.current.click();
+  }
+
   async function handleFiles(e) {
-    // Snapshot files immediately — iOS Safari loses the FileList if you await first
     const files = Array.from(e.target.files || []);
-    setInputKey(k => k + 1); // reset input for next use
+    setInputKey(k => k + 1);
+    log("Files selected: " + files.length);
     if (!files.length) return;
     setAdding(true);
     const newRecords = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setProgress(`Saving ${i + 1} of ${files.length}…`);
+      setProgress("Saving " + (i+1) + " of " + files.length + "...");
       try {
-        // Step 1: read raw file as base64 first (before any other reads)
+        log("Reading: " + file.name + " type:" + file.type + " size:" + file.size);
         const rawDataURL = await readFileAsDataURL(file);
-        if (!rawDataURL) { dbg("❌ No dataURL:", file.name); continue; }
-        dbg("✅ Read OK:", file.name, "size:", rawDataURL.length, "type:", file.type);
+        if (!rawDataURL) { log("No dataURL"); continue; }
+        log("Read OK, length:" + rawDataURL.length);
 
-        // Step 2: try EXIF from the raw base64 (convert back to buffer)
+        // Try EXIF
         let exif = {};
         try {
           const b64 = rawDataURL.split(",")[1];
@@ -1665,41 +1664,36 @@ function MemoryPhotoCard() {
           const buf = new Uint8Array(bin.length);
           for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
           exif = parseEXIF(buf.buffer);
-          dbg("📷 EXIF:", JSON.stringify(exif));
-        } catch(err) { dbg("❌ EXIF error:", String(err)); }
+          log("EXIF: date=" + exif.dateTaken + " lat=" + exif.lat + " lon=" + exif.lon);
+        } catch(ex) { log("EXIF error: " + ex); }
 
-        // Step 3: compress for storage
+        // Compress
         const dataURL = await compressImage(file);
-        if (!dataURL) { dbg("❌ Compress failed"); continue; }
-        dbg("🗜 Compressed:", dataURL.length, "chars");
+        const finalURL = (dataURL && dataURL.length > 1000) ? dataURL : rawDataURL;
+        log("Compressed: " + finalURL.length);
 
         const record = {
-          id:        Date.now() + i,
-          dataURL,
+          id: Date.now() + i,
+          dataURL: finalURL,
           dateTaken: exif.dateTaken || null,
-          location:  null,
-          lat:       exif.lat != null ? exif.lat : null,
-          lon:       exif.lon != null ? exif.lon : null,
+          location: null,
+          lat: exif.lat != null ? exif.lat : null,
+          lon: exif.lon != null ? exif.lon : null,
         };
 
-        // Step 3: save to IndexedDB
         await dbPut(record);
         newRecords.push(record);
-        // Update UI after each photo so user sees progress
         setAll(prev => [...prev, record]);
-        if (newRecords.length === 1) {
-          // Show first photo immediately
-          setPhoto(record);
-        }
-      } catch (err) {
-        dbg("❌ Import error:", String(err));
+        if (newRecords.length === 1) setPhoto(record);
+        log("Saved to DB ok");
+      } catch(err) {
+        log("Error: " + err);
       }
     }
 
     setProgress("");
     setAdding(false);
 
-    // Final refresh from DB
     try {
       const all = await dbGetAll();
       setAll(all);
@@ -1707,185 +1701,123 @@ function MemoryPhotoCard() {
         const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % all.length);
         setPhoto(all[idx]);
       }
-    } catch(_) {}
+    } catch(e) { log("DB refresh error: " + e); }
 
-    // Geocode in background — non-blocking
+    // Geocode in background
     for (const record of newRecords) {
-      dbg("📍 Geocode check lat:", record.lat, "lon:", record.lon);
+      log("Geocode? lat=" + record.lat + " lon=" + record.lon);
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
-          dbg("🌍 Geocode result:", location);
+          log("Geocode result: " + location);
           if (location) {
             const upd = { ...record, location };
             await dbPut(upd);
             setAll(prev => prev.map(p => p.id === record.id ? upd : p));
-            setPhoto(prev => prev?.id === record.id ? upd : prev);
+            setPhoto(prev => prev && prev.id === record.id ? upd : prev);
           }
-        }).catch(err => dbg("❌ Geocode error:", String(err)));
+        }).catch(e => log("Geocode error: " + e));
       }
     }
   }
 
   async function deletePhoto(id) {
     await dbDelete(id);
-    const updated = await dbGetAll();
-    setAll(updated);
-    if (updated.length > 0) {
-      const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % updated.length);
-      setPhoto(updated[idx]);
-    } else { setPhoto(null); }
+    const all = await dbGetAll();
+    setAll(all);
+    if (all.length > 0) {
+      const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % all.length);
+      setPhoto(all[idx]);
+    } else {
+      setPhoto(null);
+    }
   }
 
   if (loading) return null;
 
   return (
-    <div style={{ marginBottom: "20px" }}>
-      {/* Hidden file input — triggered programmatically to avoid Safari label bug */}
-      <input
-        key={inputKey}
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleFiles}
-        style={{ display:"none", position:"absolute", left:"-9999px" }}
-      />
+    <div style={{marginBottom:"20px"}}>
+      <input key={inputKey} ref={fileRef} type="file" accept="image/*" multiple
+        onChange={handleFiles} style={{display:"none",position:"absolute",left:"-9999px"}}/>
 
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px" }}>
-        <div style={{ fontSize:"13px", fontWeight:"700", color:C.textDim, letterSpacing:"0.06em" }}>MEMORY OF THE DAY</div>
-        <div style={{ display:"flex", gap:"8px" }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+        <div style={{fontSize:"13px",fontWeight:"700",color:C.textDim,letterSpacing:"0.06em"}}>MEMORY OF THE DAY</div>
+        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
           {allPhotos.length > 0 && (
-            <button onClick={() => setShowAll(!showAll)} style={{
-              background:"none", border:`1px solid ${C.borderHi}`,
+            <button onClick={() => setShowAll(s => !s)} style={{
+              background:"none", border:"1px solid " + C.borderHi,
               borderRadius:"8px", padding:"4px 10px",
               color:C.textMid, fontSize:"12px", fontWeight:"600",
               cursor:"pointer", fontFamily:font,
-            }}>{showAll ? "Hide all" : `All (${allPhotos.length})`}</button>
+            }}>{showAll ? "Hide" : "All (" + allPhotos.length + ")"}</button>
           )}
           <button onClick={pickPhotos} disabled={adding} style={{
-            background:C.blueGlow, border:`1px solid ${C.blueDim}`,
+            background:C.blueGlow, border:"1px solid " + C.blueDim,
             borderRadius:"8px", padding:"4px 12px",
             color:C.blueText, fontSize:"12px", fontWeight:"600",
             cursor: adding ? "not-allowed" : "pointer",
             fontFamily:font, opacity: adding ? 0.6 : 1,
-          }}>📷 Add photos</button>
-          <button onClick={()=>{setDebugSnapshot([..._debugLogs]);setShowDebug(s=>!s);}} style={{
-            background:"none", border:`1px solid ${C.border}`,
+          }}>{"📷 Add"}</button>
+          <button onClick={() => setShowLogs(s => !s)} style={{
+            background:"none", border:"1px solid " + C.border,
             borderRadius:"8px", padding:"4px 8px",
-            color:C.textDim, fontSize:"11px", fontWeight:"600",
+            color:C.textDim, fontSize:"11px",
             cursor:"pointer", fontFamily:font,
-          }}>🐛</button>
+          }}>{"🐛"}</button>
         </div>
       </div>
 
+      {showLogs && (
+        <div style={{background:"#000",border:"1px solid " + C.green,borderRadius:"12px",padding:"10px",marginBottom:"10px",maxHeight:"180px",overflowY:"auto"}}>
+          <div style={{fontSize:"10px",fontWeight:"700",color:C.green,marginBottom:"6px"}}>DEBUG LOG</div>
+          {logs.length === 0
+            ? <div style={{fontSize:"10px",color:C.textDim}}>No logs yet — add a photo</div>
+            : logs.map((l, i) => (
+                <div key={i} style={{fontSize:"10px",color: l.includes("Error") ? C.red : l.includes("OK") || l.includes("result") ? C.green : C.textMid,fontFamily:"monospace",marginBottom:"2px",wordBreak:"break-all",lineHeight:1.4}}>{l}</div>
+              ))
+          }
+        </div>
+      )}
+
       {adding && (
-        <div style={{
-          background:C.card, border:`1px solid ${C.border}`, borderRadius:"16px",
-          padding:"16px", textAlign:"center", marginBottom:"10px",
-        }}>
-          <div style={{ fontSize:"13px", color:C.textMid }}>{progress || "Processing…"}</div>
+        <div style={{background:C.card,border:"1px solid " + C.border,borderRadius:"16px",padding:"16px",textAlign:"center",marginBottom:"10px"}}>
+          <div style={{fontSize:"13px",color:C.textMid}}>{progress || "Processing..."}</div>
         </div>
       )}
 
-      {showDebug && (
-        <div style={{
-          background:"#000", border:`1px solid ${C.green}`, borderRadius:"12px",
-          padding:"12px", marginBottom:"12px", maxHeight:"200px", overflowY:"auto",
-        }}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"8px"}}>
-            <span style={{fontSize:"11px",fontWeight:"700",color:C.green}}>DEBUG LOG</span>
-            <button onClick={()=>{setDebugSnapshot([..._debugLogs]);}} style={{background:"none",border:"none",color:C.textMid,fontSize:"11px",cursor:"pointer",fontFamily:font}}>Refresh</button>
-          </div>
-          {debugSnapshot.length===0?(
-            <div style={{fontSize:"11px",color:C.textDim}}>No logs yet — add a photo first</div>
-          ):debugSnapshot.map((log,i)=>(
-            <div key={i} style={{fontSize:"10px",color:log.includes("❌")?C.red:log.includes("✅")||log.includes("🌍")?C.green:C.textMid,fontFamily:"monospace",marginBottom:"3px",lineHeight:1.4,wordBreak:"break-all"}}>{log}</div>
-          ))}
-        </div>
-      )}
-
-      {/* Daily photo card */}
       {photo && !showAll && (
-        <div style={{
-          position:"relative", borderRadius:"20px", overflow:"hidden",
-          border:`1px solid ${C.border}`, aspectRatio:"4/3",
-          background:C.card,
-        }}>
-          <img src={photo.dataURL} alt="Memory"
-            style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
-          <div style={{
-            position:"absolute", bottom:0, left:0, right:0,
-            background:"linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0) 100%)",
-            padding:"48px 16px 16px",
-          }}>
+        <div style={{position:"relative",borderRadius:"20px",overflow:"hidden",border:"1px solid " + C.border,aspectRatio:"4/3",background:C.card}}>
+          <img src={photo.dataURL} alt="Memory" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.3) 60%,rgba(0,0,0,0) 100%)",padding:"48px 16px 16px"}}>
             {photo.location && (
-              <div style={{
-                display:"flex", alignItems:"center", gap:"5px",
-                marginBottom:"4px",
-              }}>
-                <span style={{ fontSize:"11px", color:"rgba(255,255,255,0.7)" }}>📍</span>
-                <span style={{
-                  fontSize:"13px", fontWeight:"600", color:"#fff",
-                  textShadow:"0 1px 4px rgba(0,0,0,0.6)",
-                  letterSpacing:"0.01em",
-                }}>{photo.location}</span>
+              <div style={{display:"flex",alignItems:"center",gap:"5px",marginBottom:"4px"}}>
+                <span style={{fontSize:"11px",color:"rgba(255,255,255,0.7)"}}>{"📍"}</span>
+                <span style={{fontSize:"13px",fontWeight:"600",color:"#fff",textShadow:"0 1px 4px rgba(0,0,0,0.6)",letterSpacing:"0.01em"}}>{photo.location}</span>
               </div>
             )}
             {photo.dateTaken && (
-              <div style={{
-                fontSize:"12px", fontWeight:"400",
-                color:"rgba(255,255,255,0.65)",
-                letterSpacing:"0.02em",
-                textShadow:"0 1px 3px rgba(0,0,0,0.5)",
-              }}>{fmtExifDate(photo.dateTaken)}</div>
+              <div style={{fontSize:"12px",fontWeight:"400",color:"rgba(255,255,255,0.65)",letterSpacing:"0.02em",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>{fmtExifDate(photo.dateTaken)}</div>
             )}
             {!photo.dateTaken && !photo.location && (
-              <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>Memory of the day</div>
+              <div style={{fontSize:"12px",color:"rgba(255,255,255,0.4)"}}>Memory of the day</div>
             )}
           </div>
-          <button onClick={() => deletePhoto(photo.id)} style={{
-            position:"absolute", top:"10px", right:"10px",
-            background:"rgba(0,0,0,0.5)", border:"none",
-            borderRadius:"50%", width:"28px", height:"28px",
-            color:"#fff", fontSize:"14px", cursor:"pointer",
-            display:"flex", alignItems:"center", justifyContent:"center",
-          }}>✕</button>
+          <button onClick={() => deletePhoto(photo.id)} style={{position:"absolute",top:"10px",right:"10px",background:"rgba(0,0,0,0.5)",border:"none",borderRadius:"50%",width:"28px",height:"28px",color:"#fff",fontSize:"14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{"✕"}</button>
         </div>
       )}
 
-      {/* All photos grid */}
       {showAll && (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"6px" }}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
           {allPhotos.map(p => (
-            <div key={p.id} style={{
-              position:"relative", borderRadius:"10px", overflow:"hidden",
-              aspectRatio:"1", background:C.card,
-              border: p.id === photo?.id ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
-            }}>
-              <img src={p.dataURL} alt=""
-                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
-              {p.id === photo?.id && (
-                <div style={{
-                  position:"absolute", top:"4px", left:"4px",
-                  background:C.blue, borderRadius:"6px",
-                  padding:"2px 5px", fontSize:"9px", fontWeight:"700", color:"#fff",
-                }}>TODAY</div>
+            <div key={p.id} style={{position:"relative",borderRadius:"10px",overflow:"hidden",aspectRatio:"1",background:C.card,border: p.id === (photo && photo.id) ? "2px solid " + C.blue : "1px solid " + C.border}}>
+              <img src={p.dataURL} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+              {p.id === (photo && photo.id) && (
+                <div style={{position:"absolute",top:"4px",left:"4px",background:C.blue,borderRadius:"6px",padding:"2px 5px",fontSize:"9px",fontWeight:"700",color:"#fff"}}>TODAY</div>
               )}
-              <button onClick={() => deletePhoto(p.id)} style={{
-                position:"absolute", top:"4px", right:"4px",
-                background:"rgba(0,0,0,0.55)", border:"none",
-                borderRadius:"50%", width:"22px", height:"22px",
-                color:"#fff", fontSize:"12px", cursor:"pointer",
-                display:"flex", alignItems:"center", justifyContent:"center",
-              }}>✕</button>
-              {(p.dateTaken||p.location) && (
-                <div style={{
-                  position:"absolute", bottom:0, left:0, right:0,
-                  background:"linear-gradient(to top,rgba(0,0,0,0.8),transparent)",
-                  padding:"12px 5px 4px",
-                }}>
-                  <div style={{ fontSize:"8px", color:"rgba(255,255,255,0.9)", lineHeight:1.4, fontWeight:"500" }}>
-                    {p.location  && <div>{p.location}</div>}
+              <button onClick={() => deletePhoto(p.id)} style={{position:"absolute",top:"4px",right:"4px",background:"rgba(0,0,0,0.55)",border:"none",borderRadius:"50%",width:"22px",height:"22px",color:"#fff",fontSize:"12px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{"✕"}</button>
+              {(p.dateTaken || p.location) && (
+                <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.8),transparent)",padding:"12px 5px 4px"}}>
+                  <div style={{fontSize:"8px",color:"rgba(255,255,255,0.9)",lineHeight:1.4,fontWeight:"500"}}>
+                    {p.location && <div>{p.location}</div>}
                     {p.dateTaken && <div style={{opacity:0.7}}>{fmtExifDate(p.dateTaken)}</div>}
                   </div>
                 </div>
@@ -1896,24 +1828,17 @@ function MemoryPhotoCard() {
       )}
 
       {!photo && !adding && (
-        <div style={{
-          background:C.card, border:`1px dashed ${C.border}`,
-          borderRadius:"16px", padding:"28px 20px", textAlign:"center",
-        }}>
-          <div style={{ fontSize:"32px", marginBottom:"10px" }}>🖼️</div>
-          <div style={{ fontSize:"15px", fontWeight:"700", color:C.text, marginBottom:"6px" }}>Add your favourite photos</div>
-          <div style={{ fontSize:"13px", color:C.textMid, marginBottom:"16px", lineHeight:1.5 }}>
-            Tap <strong style={{color:C.blueText}}>📷 Add photos</strong> above →<br/>select <strong style={{color:C.text}}>Photo Library</strong>
-          </div>
-          <button onClick={pickPhotos} style={{
-            ...primaryBtn(C.blue), padding:"12px 24px",
-            width:"auto", display:"inline-block", boxShadow:"none",
-          }}>📷 Choose from library</button>
+        <div style={{background:C.card,border:"1px dashed " + C.border,borderRadius:"16px",padding:"28px 20px",textAlign:"center"}}>
+          <div style={{fontSize:"32px",marginBottom:"10px"}}>{"🖼️"}</div>
+          <div style={{fontSize:"15px",fontWeight:"700",color:C.text,marginBottom:"6px"}}>Add your favourite photos</div>
+          <div style={{fontSize:"13px",color:C.textMid,marginBottom:"16px",lineHeight:1.5}}>Tap Add above then choose Photo Library</div>
+          <button onClick={pickPhotos} style={{background:"linear-gradient(135deg," + C.blue + ",#1d4ed8)",border:"none",borderRadius:"12px",color:"#fff",fontSize:"15px",fontWeight:"700",cursor:"pointer",fontFamily:font,padding:"12px 24px"}}>{"📷 Choose from library"}</button>
         </div>
       )}
     </div>
   );
 }
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    HOME SCREEN
