@@ -1646,6 +1646,7 @@ function MemoryPhotoCard() {
         // Step 1: read raw file as base64 first (before any other reads)
         const rawDataURL = await readFileAsDataURL(file);
         if (!rawDataURL) { console.warn("No dataURL for file", file.name); continue; }
+        console.log("✅ File read OK:", file.name, "size:", rawDataURL.length, "type:", file.type);
 
         // Step 2: try EXIF from the raw base64 (convert back to buffer)
         let exif = {};
@@ -1655,11 +1656,13 @@ function MemoryPhotoCard() {
           const buf = new Uint8Array(bin.length);
           for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
           exif = parseEXIF(buf.buffer);
-        } catch(_) {}
+          console.log("📷 EXIF result:", JSON.stringify(exif));
+        } catch(err) { console.warn("EXIF parse error:", err); }
 
         // Step 3: compress for storage
         const dataURL = await compressImage(file);
-        if (!dataURL) continue;
+        if (!dataURL) { console.warn("Compression failed"); continue; }
+        console.log("🗜 Compressed size:", dataURL.length);
 
         const record = {
           id:        Date.now() + i,
@@ -1699,15 +1702,17 @@ function MemoryPhotoCard() {
 
     // Geocode in background — non-blocking
     for (const record of newRecords) {
+      console.log("📍 Geocode check - lat:", record.lat, "lon:", record.lon);
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
+          console.log("🌍 Geocode result:", location);
           if (location) {
             const upd = { ...record, location };
             await dbPut(upd);
             setAll(prev => prev.map(p => p.id === record.id ? upd : p));
             setPhoto(prev => prev?.id === record.id ? upd : prev);
           }
-        }).catch(() => {});
+        }).catch(err => console.warn("Geocode error:", err));
       }
     }
   }
