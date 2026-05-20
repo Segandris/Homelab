@@ -1605,6 +1605,15 @@ function fmtExifDate(exifStr) {
   return new Date(+y, +m - 1, +d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+// ── Debug logger ─────────────────────────────────────────────────────────────
+const _debugLogs = [];
+function dbg(...args) {
+  const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
+  _debugLogs.unshift("[" + new Date().toLocaleTimeString() + "] " + msg);
+  if (_debugLogs.length > 30) _debugLogs.pop();
+  console.log(...args);
+}
+
 // ── Memory Photo Card component ───────────────────────────────────────────
 function MemoryPhotoCard() {
   const [photo, setPhoto]       = useState(null);
@@ -1645,8 +1654,8 @@ function MemoryPhotoCard() {
       try {
         // Step 1: read raw file as base64 first (before any other reads)
         const rawDataURL = await readFileAsDataURL(file);
-        if (!rawDataURL) { console.warn("No dataURL for file", file.name); continue; }
-        console.log("✅ File read OK:", file.name, "size:", rawDataURL.length, "type:", file.type);
+        if (!rawDataURL) { dbg("❌ No dataURL:", file.name); continue; }
+        dbg("✅ Read OK:", file.name, "size:", rawDataURL.length, "type:", file.type);
 
         // Step 2: try EXIF from the raw base64 (convert back to buffer)
         let exif = {};
@@ -1656,13 +1665,13 @@ function MemoryPhotoCard() {
           const buf = new Uint8Array(bin.length);
           for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
           exif = parseEXIF(buf.buffer);
-          console.log("📷 EXIF result:", JSON.stringify(exif));
-        } catch(err) { console.warn("EXIF parse error:", err); }
+          dbg("📷 EXIF:", JSON.stringify(exif));
+        } catch(err) { dbg("❌ EXIF error:", String(err)); }
 
         // Step 3: compress for storage
         const dataURL = await compressImage(file);
-        if (!dataURL) { console.warn("Compression failed"); continue; }
-        console.log("🗜 Compressed size:", dataURL.length);
+        if (!dataURL) { dbg("❌ Compress failed"); continue; }
+        dbg("🗜 Compressed:", dataURL.length, "chars");
 
         const record = {
           id:        Date.now() + i,
@@ -1683,7 +1692,7 @@ function MemoryPhotoCard() {
           setPhoto(record);
         }
       } catch (err) {
-        console.error("Photo import error:", err);
+        dbg("❌ Import error:", String(err));
       }
     }
 
@@ -1702,17 +1711,17 @@ function MemoryPhotoCard() {
 
     // Geocode in background — non-blocking
     for (const record of newRecords) {
-      console.log("📍 Geocode check - lat:", record.lat, "lon:", record.lon);
+      dbg("📍 Geocode check lat:", record.lat, "lon:", record.lon);
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
-          console.log("🌍 Geocode result:", location);
+          dbg("🌍 Geocode result:", location);
           if (location) {
             const upd = { ...record, location };
             await dbPut(upd);
             setAll(prev => prev.map(p => p.id === record.id ? upd : p));
             setPhoto(prev => prev?.id === record.id ? upd : prev);
           }
-        }).catch(err => console.warn("Geocode error:", err));
+        }).catch(err => dbg("❌ Geocode error:", String(err)));
       }
     }
   }
@@ -1760,6 +1769,12 @@ function MemoryPhotoCard() {
             cursor: adding ? "not-allowed" : "pointer",
             fontFamily:font, opacity: adding ? 0.6 : 1,
           }}>📷 Add photos</button>
+          <button onClick={()=>{setDebugSnapshot([..._debugLogs]);setShowDebug(s=>!s);}} style={{
+            background:"none", border:`1px solid ${C.border}`,
+            borderRadius:"8px", padding:"4px 8px",
+            color:C.textDim, fontSize:"11px", fontWeight:"600",
+            cursor:"pointer", fontFamily:font,
+          }}>🐛</button>
         </div>
       </div>
 
@@ -1769,6 +1784,23 @@ function MemoryPhotoCard() {
           padding:"16px", textAlign:"center", marginBottom:"10px",
         }}>
           <div style={{ fontSize:"13px", color:C.textMid }}>{progress || "Processing…"}</div>
+        </div>
+      )}
+
+      {showDebug && (
+        <div style={{
+          background:"#000", border:`1px solid ${C.green}`, borderRadius:"12px",
+          padding:"12px", marginBottom:"12px", maxHeight:"200px", overflowY:"auto",
+        }}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"8px"}}>
+            <span style={{fontSize:"11px",fontWeight:"700",color:C.green}}>DEBUG LOG</span>
+            <button onClick={()=>{setDebugSnapshot([..._debugLogs]);}} style={{background:"none",border:"none",color:C.textMid,fontSize:"11px",cursor:"pointer",fontFamily:font}}>Refresh</button>
+          </div>
+          {debugSnapshot.length===0?(
+            <div style={{fontSize:"11px",color:C.textDim}}>No logs yet — add a photo first</div>
+          ):debugSnapshot.map((log,i)=>(
+            <div key={i} style={{fontSize:"10px",color:log.includes("❌")?C.red:log.includes("✅")||log.includes("🌍")?C.green:C.textMid,fontFamily:"monospace",marginBottom:"3px",lineHeight:1.4,wordBreak:"break-all"}}>{log}</div>
+          ))}
         </div>
       )}
 
