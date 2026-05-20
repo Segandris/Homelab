@@ -66,7 +66,6 @@
       }
     },25000);
   </script>
-  <!-- exifr: battle-tested EXIF parser for browsers including iOS -->
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -1633,6 +1632,8 @@ function MemoryPhotoCard() {
   const [inputKey, setInputKey] = useState(0);
   const [logs, setLogs]       = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [locationInput, setLocationInput] = useState("");
   const fileRef = React.useRef(null);
 
   function log(msg) {
@@ -1745,6 +1746,17 @@ function MemoryPhotoCard() {
     }
   }
 
+  async function saveLocation(id) {
+    const loc = locationInput.trim();
+    const all = await dbGetAll();
+    const updated = all.map(p => p.id === id ? { ...p, location: loc || null } : p);
+    for (const p of updated) { if (p.id === id) await dbPut(p); }
+    setAll(updated);
+    setPhoto(prev => prev && prev.id === id ? { ...prev, location: loc || null } : prev);
+    setEditingId(null);
+    setLocationInput("");
+  }
+
   if (loading) return null;
 
   return (
@@ -1800,18 +1812,37 @@ function MemoryPhotoCard() {
       {photo && !showAll && (
         <div style={{position:"relative",borderRadius:"20px",overflow:"hidden",border:"1px solid " + C.border,aspectRatio:"4/3",background:C.card}}>
           <img src={photo.dataURL} alt="Memory" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.3) 60%,rgba(0,0,0,0) 100%)",padding:"48px 16px 16px"}}>
-            {photo.location && (
-              <div style={{display:"flex",alignItems:"center",gap:"5px",marginBottom:"4px"}}>
-                <span style={{fontSize:"11px",color:"rgba(255,255,255,0.7)"}}>{"📍"}</span>
-                <span style={{fontSize:"13px",fontWeight:"600",color:"#fff",textShadow:"0 1px 4px rgba(0,0,0,0.6)",letterSpacing:"0.01em"}}>{photo.location}</span>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.3) 60%,rgba(0,0,0,0) 100%)",padding:"48px 16px 12px"}}>
+            {editingId === photo.id ? (
+              <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                <input
+                  autoFocus
+                  placeholder="Enter location..."
+                  value={locationInput}
+                  onChange={e => setLocationInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && saveLocation(photo.id)}
+                  style={{flex:1,background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"8px",color:"#fff",padding:"7px 10px",fontSize:"14px",fontFamily:font,outline:"none"}}
+                />
+                <button onClick={() => saveLocation(photo.id)} style={{background:C.blue,border:"none",borderRadius:"8px",color:"#fff",padding:"7px 12px",fontSize:"13px",fontWeight:"600",cursor:"pointer",fontFamily:font}}>Save</button>
+                <button onClick={() => setEditingId(null)} style={{background:"rgba(0,0,0,0.4)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.7)",padding:"7px 10px",fontSize:"13px",cursor:"pointer",fontFamily:font}}>✕</button>
               </div>
-            )}
-            {photo.dateTaken && (
-              <div style={{fontSize:"12px",fontWeight:"400",color:"rgba(255,255,255,0.65)",letterSpacing:"0.02em",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>{fmtExifDate(photo.dateTaken)}</div>
-            )}
-            {!photo.dateTaken && !photo.location && (
-              <div style={{fontSize:"12px",color:"rgba(255,255,255,0.4)"}}>Memory of the day</div>
+            ) : (
+              <div onClick={() => { setEditingId(photo.id); setLocationInput(photo.location || ""); }} style={{cursor:"pointer"}}>
+                {photo.location ? (
+                  <div style={{display:"flex",alignItems:"center",gap:"5px",marginBottom:"4px"}}>
+                    <span style={{fontSize:"11px",color:"rgba(255,255,255,0.7)"}}>{"📍"}</span>
+                    <span style={{fontSize:"13px",fontWeight:"600",color:"#fff",textShadow:"0 1px 4px rgba(0,0,0,0.6)"}}>{photo.location}</span>
+                    <span style={{fontSize:"10px",color:"rgba(255,255,255,0.4)",marginLeft:"2px"}}>✏️</span>
+                  </div>
+                ) : (
+                  <div style={{display:"flex",alignItems:"center",gap:"5px",marginBottom:"4px"}}>
+                    <span style={{fontSize:"12px",color:"rgba(255,255,255,0.4)"}}>📍 Tap to add location</span>
+                  </div>
+                )}
+                {photo.dateTaken && (
+                  <div style={{fontSize:"12px",color:"rgba(255,255,255,0.65)",letterSpacing:"0.02em",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>{fmtExifDate(photo.dateTaken)}</div>
+                )}
+              </div>
             )}
           </div>
           <button onClick={() => deletePhoto(photo.id)} style={{position:"absolute",top:"10px",right:"10px",background:"rgba(0,0,0,0.5)",border:"none",borderRadius:"50%",width:"28px",height:"28px",color:"#fff",fontSize:"14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{"✕"}</button>
@@ -1827,14 +1858,19 @@ function MemoryPhotoCard() {
                 <div style={{position:"absolute",top:"4px",left:"4px",background:C.blue,borderRadius:"6px",padding:"2px 5px",fontSize:"9px",fontWeight:"700",color:"#fff"}}>TODAY</div>
               )}
               <button onClick={() => deletePhoto(p.id)} style={{position:"absolute",top:"4px",right:"4px",background:"rgba(0,0,0,0.55)",border:"none",borderRadius:"50%",width:"22px",height:"22px",color:"#fff",fontSize:"12px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{"✕"}</button>
-              {(p.dateTaken || p.location) && (
-                <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.8),transparent)",padding:"12px 5px 4px"}}>
-                  <div style={{fontSize:"8px",color:"rgba(255,255,255,0.9)",lineHeight:1.4,fontWeight:"500"}}>
-                    {p.location && <div>{p.location}</div>}
-                    {p.dateTaken && <div style={{opacity:0.7}}>{fmtExifDate(p.dateTaken)}</div>}
+              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,rgba(0,0,0,0.8),transparent)",padding:"12px 5px 4px"}}>
+                {editingId === p.id ? (
+                  <div style={{display:"flex",gap:"3px"}}>
+                    <input autoFocus placeholder="Location..." value={locationInput} onChange={e=>setLocationInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveLocation(p.id)} style={{flex:1,background:"rgba(0,0,0,0.7)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"5px",color:"#fff",padding:"3px 5px",fontSize:"10px",fontFamily:font,outline:"none",minWidth:0}}/>
+                    <button onClick={()=>saveLocation(p.id)} style={{background:C.blue,border:"none",borderRadius:"5px",color:"#fff",padding:"3px 5px",fontSize:"9px",cursor:"pointer"}}>✓</button>
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div onClick={()=>{setEditingId(p.id);setLocationInput(p.location||"");}} style={{cursor:"pointer"}}>
+                    <div style={{fontSize:"8px",color:p.location?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.35)",lineHeight:1.4,fontWeight:"500"}}>{p.location||"+ location"}</div>
+                    {p.dateTaken&&<div style={{fontSize:"7px",color:"rgba(255,255,255,0.5)",opacity:0.8}}>{fmtExifDate(p.dateTaken)}</div>}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
