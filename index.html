@@ -1592,12 +1592,17 @@ function MemoryPhotoCard() {
   const [adding, setAdding]     = useState(false);
   const [showAll, setShowAll]   = useState(false);
   const [progress, setProgress] = useState("");
+  const [inputKey, setInputKey] = useState(0); // reset input after each use
+  const fileRef = React.useRef(null);
+
+  function pickPhotos() {
+    if (fileRef.current) fileRef.current.click();
+  }
 
   useEffect(() => {
     dbGetAll().then(photos => {
       setAll(photos);
       if (photos.length > 0) {
-        // Pick deterministically by date so it's stable all day
         const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % photos.length);
         setPhoto(photos[idx]);
       }
@@ -1606,7 +1611,9 @@ function MemoryPhotoCard() {
   }, []);
 
   async function handleFiles(e) {
-    const files = Array.from(e.target.files);
+    const files = Array.from(e.target.files || []);
+    // Reset input immediately so Safari allows re-selection later
+    setInputKey(k => k + 1);
     if (!files.length) return;
     setAdding(true);
     const newRecords = [];
@@ -1614,43 +1621,42 @@ function MemoryPhotoCard() {
       const file = files[i];
       setProgress(`Saving ${i + 1} of ${files.length}…`);
       try {
-        // Parse EXIF and compress in parallel
-        const [buf, dataURL] = await Promise.all([
-          file.arrayBuffer(),
-          compressImage(file),
-        ]);
-        const exif = parseEXIF(buf);
+        const dataURL = await compressImage(file);
+        let exif = {};
+        try {
+          const buf = await file.arrayBuffer();
+          exif = parseEXIF(buf);
+        } catch(_) {}
         const record = {
           id:        Date.now() + i,
           dataURL,
           dateTaken: exif.dateTaken || null,
-          location:  null, // filled in async below
-          lat:       exif.lat || null,
-          lon:       exif.lon || null,
+          location:  null,
+          lat:       exif.lat != null ? exif.lat : null,
+          lon:       exif.lon != null ? exif.lon : null,
         };
         await dbPut(record);
         newRecords.push(record);
         setAll(prev => [...prev, record]);
-      } catch (err) { console.error(err); }
+      } catch (err) { console.error("Photo error:", err); }
     }
     setProgress("");
     setAdding(false);
-    // Refresh photo immediately
     const updated = await dbGetAll();
     setAll(updated);
     if (updated.length > 0) {
       const idx = Math.floor((new Date().getDate() * 31 + new Date().getMonth() * 12) % updated.length);
       setPhoto(updated[idx]);
     }
-    // Geocode in background after UI is unblocked
+    // Geocode in background
     for (const record of newRecords) {
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
           if (location) {
-            const updated = { ...record, location };
-            await dbPut(updated);
-            setAll(prev => prev.map(p => p.id === record.id ? updated : p));
-            setPhoto(prev => prev?.id === record.id ? updated : prev);
+            const upd = { ...record, location };
+            await dbPut(upd);
+            setAll(prev => prev.map(p => p.id === record.id ? upd : p));
+            setPhoto(prev => prev?.id === record.id ? upd : prev);
           }
         }).catch(() => {});
       }
@@ -1671,6 +1677,17 @@ function MemoryPhotoCard() {
 
   return (
     <div style={{ marginBottom: "20px" }}>
+      {/* Hidden file input — triggered programmatically to avoid Safari label bug */}
+      <input
+        key={inputKey}
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFiles}
+        style={{ display:"none", position:"absolute", left:"-9999px" }}
+      />
+
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px" }}>
         <div style={{ fontSize:"13px", fontWeight:"700", color:C.textDim, letterSpacing:"0.06em" }}>MEMORY OF THE DAY</div>
         <div style={{ display:"flex", gap:"8px" }}>
@@ -1682,16 +1699,13 @@ function MemoryPhotoCard() {
               cursor:"pointer", fontFamily:font,
             }}>{showAll ? "Hide all" : `All (${allPhotos.length})`}</button>
           )}
-          <label style={{
+          <button onClick={pickPhotos} disabled={adding} style={{
             background:C.blueGlow, border:`1px solid ${C.blueDim}`,
             borderRadius:"8px", padding:"4px 12px",
             color:C.blueText, fontSize:"12px", fontWeight:"600",
-            cursor:"pointer", fontFamily:font, display:"inline-block",
-          }}>
-            📷 Add photos
-            <input type="file" accept="image/*" multiple onChange={handleFiles}
-              style={{ display:"none" }} disabled={adding}/>
-          </label>
+            cursor: adding ? "not-allowed" : "pointer",
+            fontFamily:font, opacity: adding ? 0.6 : 1,
+          }}>📷 Add photos</button>
         </div>
       </div>
 
@@ -1713,7 +1727,6 @@ function MemoryPhotoCard() {
         }}>
           <img src={photo.dataURL} alt="Memory"
             style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
-          {/* Bottom gradient overlay */}
           <div style={{
             position:"absolute", bottom:0, left:0, right:0,
             background:"linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)",
@@ -1734,7 +1747,6 @@ function MemoryPhotoCard() {
               </div>
             )}
           </div>
-          {/* Delete button */}
           <button onClick={() => deletePhoto(photo.id)} style={{
             position:"absolute", top:"10px", right:"10px",
             background:"rgba(0,0,0,0.5)", border:"none",
@@ -1788,35 +1800,20 @@ function MemoryPhotoCard() {
       )}
 
       {!photo && !adding && (
-        <label style={{
-          display:"block", background:C.card,
-          border:`1px dashed ${C.border}`, borderRadius:"16px",
-          padding:"28px 20px", textAlign:"center", cursor:"pointer",
+        <div style={{
+          background:C.card, border:`1px dashed ${C.border}`,
+          borderRadius:"16px", padding:"28px 20px", textAlign:"center",
         }}>
           <div style={{ fontSize:"32px", marginBottom:"10px" }}>🖼️</div>
           <div style={{ fontSize:"15px", fontWeight:"700", color:C.text, marginBottom:"6px" }}>Add your favourite photos</div>
-          <div style={{ fontSize:"13px", color:C.textMid, marginBottom:"14px", lineHeight:1.5 }}>
-            Tap the button above → select <strong style={{color:C.text}}>Photo Library</strong>
+          <div style={{ fontSize:"13px", color:C.textMid, marginBottom:"16px", lineHeight:1.5 }}>
+            Tap <strong style={{color:C.blueText}}>📷 Add photos</strong> above →<br/>select <strong style={{color:C.text}}>Photo Library</strong>
           </div>
-          <div style={{
-            display:"inline-flex", flexDirection:"column", gap:"6px",
-            textAlign:"left", background:C.surface, borderRadius:"12px",
-            padding:"12px 16px",
-          }}>
-            {[["1","Tap 📷 Add photos above"],["2","Choose Photo Library"],["3","Select multiple photos"],["4","Tap Add to confirm"]].map(([n,t])=>(
-              <div key={n} style={{ display:"flex", alignItems:"center", gap:"10px" }}>
-                <div style={{
-                  width:"20px", height:"20px", borderRadius:"50%", flexShrink:0,
-                  background:C.blueGlow, border:`1px solid ${C.blueDim}`,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  fontSize:"10px", fontWeight:"700", color:C.blueText,
-                }}>{n}</div>
-                <span style={{ fontSize:"12px", color:C.textMid }}>{t}</span>
-              </div>
-            ))}
-          </div>
-          <input type="file" accept="image/*" multiple onChange={handleFiles} style={{ display:"none" }}/>
-        </label>
+          <button onClick={pickPhotos} style={{
+            ...primaryBtn(C.blue), padding:"12px 24px",
+            width:"auto", display:"inline-block", boxShadow:"none",
+          }}>📷 Choose from library</button>
+        </div>
       )}
     </div>
   );
