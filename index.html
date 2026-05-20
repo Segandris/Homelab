@@ -66,6 +66,8 @@
       }
     },25000);
   </script>
+  <!-- exifr: battle-tested EXIF parser for browsers including iOS -->
+  <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -1526,106 +1528,35 @@ async function dbDelete(id) {
   });
 }
 
-// EXIF parser — defensive version with full bounds checking
-function parseEXIF(buffer) {
+// EXIF parsing via exifr library (loaded from CDN in HTML)
+// Falls back gracefully if library not available
+async function parseEXIFFromFile(file) {
   try {
-    const view = new DataView(buffer);
-    const len  = view.byteLength;
-
-    // Must be JPEG
-    if (len < 4 || view.getUint16(0) !== 0xFFD8) return {};
-
-    // Safe reader helpers — return 0 if out of bounds
-    const safe16 = (o, le) => (o + 2 <= len) ? view.getUint16(o, le) : 0;
-    const safe32 = (o, le) => (o + 4 <= len) ? view.getUint32(o, le) : 0;
-    const safe8  = (o)     => (o     < len)  ? view.getUint8(o)      : 0;
-
-    // Walk JPEG segments
-    let off = 2;
-    while (off + 4 <= len) {
-      const marker = safe16(off);
-      if (marker === 0xFFE1) {
-        // APP1 segment — check for Exif header
-        const segLen  = safe16(off + 2);
-        const exifHdr = String.fromCharCode(safe8(off+4), safe8(off+5), safe8(off+6), safe8(off+7));
-        if (exifHdr !== "Exif") { off += 2 + segLen; continue; }
-
-        const tiff   = off + 10; // TIFF header starts here
-        if (tiff + 8 > len) return {};
-
-        const le     = safe16(tiff) === 0x4949; // byte order
-        const u16    = o => safe16(tiff + o, le);
-        const u32    = o => safe32(tiff + o, le);
-        const rat    = o => { const n = u32(o), d = u32(o+4); return d ? n/d : 0; };
-
-        const ifd0   = u32(4);
-        if (ifd0 + 2 > len - tiff) return {};
-        const nEntry = u16(ifd0);
-
-        let dateTaken = null, lat = null, lon = null;
-        let latRef = "N", lonRef = "E", gpsOff = null;
-
-        for (let i = 0; i < nEntry && i < 200; i++) {
-          const e   = ifd0 + 2 + i * 12;
-          if (tiff + e + 12 > len) break;
-          const tag = u16(e);
-          const val = u32(e + 8);
-
-          // Date tags
-          if (tag === 0x9003 || tag === 0x0132) {
-            const strBase = tiff + val;
-            if (strBase + 20 <= len) {
-              let s = "";
-              for (let j = 0; j < 20; j++) s += String.fromCharCode(safe8(strBase + j));
-              dateTaken = s.replace(/ /g, "").trim();
-            }
-          }
-          // GPS IFD pointer
-          if (tag === 0x8825) gpsOff = val;
-        }
-
-        // Parse GPS IFD
-        // rat() uses tiff-relative offsets via u32, but GPS value offsets
-        // are also tiff-relative, so we need absolute buffer reads here
-        const absRat = absOff => {
-          const n = safe32(tiff + absOff, le);
-          const d = safe32(tiff + absOff + 4, le);
-          return d ? n / d : 0;
-        };
-        if (gpsOff != null && tiff + gpsOff + 2 <= len) {
-          const nGps = u16(gpsOff);
-          for (let i = 0; i < nGps && i < 50; i++) {
-            const e   = gpsOff + 2 + i * 12;
-            if (tiff + e + 12 > len) break;
-            const tag = u16(e);
-            const val = u32(e + 8); // tiff-relative offset to data
-
-            if (tag === 0x0001 && tiff + val < len) latRef = String.fromCharCode(safe8(tiff + val));
-            if (tag === 0x0003 && tiff + val < len) lonRef = String.fromCharCode(safe8(tiff + val));
-            if (tag === 0x0002 && tiff + val + 24 <= len) {
-              // val is tiff-relative; absRat adds tiff itself
-              lat = absRat(val) + absRat(val+8)/60 + absRat(val+16)/3600;
-            }
-            if (tag === 0x0004 && tiff + val + 24 <= len) {
-              lon = absRat(val) + absRat(val+8)/60 + absRat(val+16)/3600;
-            }
-          }
-          if (lat != null && latRef === "S") lat = -lat;
-          if (lon != null && lonRef === "W") lon = -lon;
-        }
-
-        return { dateTaken, lat, lon };
-      }
-
-      // Skip to next segment
-      const segLen = safe16(off + 2);
-      if (segLen < 2) break;
-      off += 2 + segLen;
+    if (typeof exifr === 'undefined') return {};
+    const data = await exifr.parse(file, {
+      tiff: true, gps: true,
+      pick: ['DateTimeOriginal', 'DateTime', 'GPSLatitude', 'GPSLongitude', 'GPSLatitudeRef', 'GPSLongitudeRef']
+    });
+    if (!data) return {};
+    let dateTaken = null;
+    if (data.DateTimeOriginal) {
+      const d = data.DateTimeOriginal;
+      dateTaken = d.getFullYear() + ':' +
+        String(d.getMonth()+1).padStart(2,'0') + ':' +
+        String(d.getDate()).padStart(2,'0') + ' 00:00:00';
     }
+    let lat = null, lon = null;
+    if (data.GPSLatitude && data.GPSLongitude) {
+      lat = data.GPSLatitude;
+      lon = data.GPSLongitude;
+      if (data.GPSLatitudeRef  === 'S') lat = -Math.abs(lat);
+      if (data.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
+    }
+    return { dateTaken, lat, lon };
   } catch(e) {
-    // Never let EXIF crash the import
+    console.log('exifr error:', e);
+    return {};
   }
-  return {};
 }
 
 // Read file as base64 via FileReader — most reliable on iOS Safari
@@ -1742,14 +1673,10 @@ function MemoryPhotoCard() {
         if (!rawDataURL) { log("No dataURL"); continue; }
         log("Read OK, length:" + rawDataURL.length);
 
-        // Try EXIF
+        // Try EXIF via exifr library
         let exif = {};
         try {
-          const b64 = rawDataURL.split(",")[1];
-          const bin = atob(b64);
-          const buf = new Uint8Array(bin.length);
-          for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
-          exif = parseEXIF(buf.buffer);
+          exif = await parseEXIFFromFile(file);
           log("EXIF: date=" + exif.dateTaken + " lat=" + exif.lat + " lon=" + exif.lon);
         } catch(ex) { log("EXIF error: " + ex); }
 
@@ -1791,7 +1718,7 @@ function MemoryPhotoCard() {
 
     // Geocode in background
     for (const record of newRecords) {
-      log("Geocode? lat=" + record.lat + " lon=" + record.lon);
+      log("GPS raw lat=" + record.lat + " lon=" + record.lon + " latRef stored in record? check EXIF line above");
       if (record.lat != null && record.lon != null) {
         reverseGeocode(record.lat, record.lon).then(async location => {
           log("Geocode result: " + location);
