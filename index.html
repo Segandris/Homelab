@@ -17,24 +17,12 @@
     input, select, textarea, button { font-family: inherit; }
     ::-webkit-scrollbar { display: none; }
     * { scrollbar-width: none; -ms-overflow-style: none; }
-    #splash {
-      position: fixed; inset: 0; background: #08090c;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 20px;
-      z-index: 999; transition: opacity 0.5s;
-    }
-    #splash.hidden { opacity: 0; pointer-events: none; }
-    .spinner {
-      width: 36px; height: 36px;
-      border: 3px solid #1e2330; border-top-color: #3b82f6;
-      border-radius: 50%; animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #error-screen {
-      display: none; position: fixed; inset: 0; background: #08090c;
-      padding: 40px 20px; overflow-y: auto; z-index: 998;
-    }
-    #error-screen.show { display: block; }
+    #splash { position:fixed;inset:0;background:#08090c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:999;transition:opacity 0.5s; }
+    #splash.hidden { opacity:0;pointer-events:none; }
+    .spinner { width:36px;height:36px;border:3px solid #1e2330;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #error-screen { display:none;position:fixed;inset:0;background:#08090c;padding:40px 20px;overflow-y:auto;z-index:998; }
+    #error-screen.show { display:block; }
   </style>
 </head>
 <body>
@@ -47,46 +35,37 @@
     <div class="spinner"></div>
     <div style="font-family:-apple-system,sans-serif;font-size:13px;color:#3d4760;letter-spacing:0.1em">HOMELAB</div>
   </div>
-
   <div id="error-screen">
     <div style="font-family:-apple-system,sans-serif;color:#ef4444;font-size:14px;font-weight:700;margin-bottom:12px">Load Error</div>
     <pre id="error-text" style="font-family:monospace;font-size:11px;color:#8892a4;white-space:pre-wrap;word-break:break-all"></pre>
   </div>
-
   <div id="root"></div>
-
   <script>
-    // Show error instead of black screen
-    window.onerror = function(msg, src, line, col, err) {
+    window.onerror = function(msg,src,line,col,err) {
       document.getElementById("splash").classList.add("hidden");
-      var es = document.getElementById("error-screen");
-      es.classList.add("show");
-      document.getElementById("error-text").textContent = msg + "\nLine: " + line + "\n" + (err && err.stack ? err.stack : "");
+      document.getElementById("error-screen").classList.add("show");
+      document.getElementById("error-text").textContent = msg+"\nLine:"+line+"\n"+(err&&err.stack?err.stack:"");
       return false;
     };
-    window.addEventListener("unhandledrejection", function(e) {
-      document.getElementById("splash").classList.add("hidden");
-      var es = document.getElementById("error-screen");
-      es.classList.add("show");
-      document.getElementById("error-text").textContent += "\nUnhandled: " + e.reason;
+    window.addEventListener("unhandledrejection",function(e){
+      document.getElementById("error-screen").classList.add("show");
+      document.getElementById("error-text").textContent += "\n"+e.reason;
     });
-
-    const observer = new MutationObserver(() => {
-      if (document.getElementById("root").children.length > 0) {
+    const observer = new MutationObserver(()=>{
+      if(document.getElementById("root").children.length>0){
         document.getElementById("splash").classList.add("hidden");
         observer.disconnect();
       }
     });
-    observer.observe(document.getElementById("root"), { childList: true, subtree: true });
-    setTimeout(() => {
-      if (document.getElementById("root").children.length === 0) {
+    observer.observe(document.getElementById("root"),{childList:true,subtree:true});
+    setTimeout(()=>{
+      if(document.getElementById("root").children.length===0){
         document.getElementById("splash").classList.add("hidden");
         document.getElementById("error-screen").classList.add("show");
-        document.getElementById("error-text").textContent = "App timed out loading. The script may be too large for this browser.\n\nTry refreshing.";
+        document.getElementById("error-text").textContent="Timed out. Try refreshing.";
       }
-    }, 25000);
+    },25000);
   </script>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -1606,21 +1585,29 @@ function parseEXIF(buffer) {
         }
 
         // Parse GPS IFD
+        // rat() uses tiff-relative offsets via u32, but GPS value offsets
+        // are also tiff-relative, so we need absolute buffer reads here
+        const absRat = absOff => {
+          const n = safe32(tiff + absOff, le);
+          const d = safe32(tiff + absOff + 4, le);
+          return d ? n / d : 0;
+        };
         if (gpsOff != null && tiff + gpsOff + 2 <= len) {
           const nGps = u16(gpsOff);
           for (let i = 0; i < nGps && i < 50; i++) {
             const e   = gpsOff + 2 + i * 12;
             if (tiff + e + 12 > len) break;
             const tag = u16(e);
-            const val = u32(e + 8);
+            const val = u32(e + 8); // tiff-relative offset to data
 
             if (tag === 0x0001 && tiff + val < len) latRef = String.fromCharCode(safe8(tiff + val));
             if (tag === 0x0003 && tiff + val < len) lonRef = String.fromCharCode(safe8(tiff + val));
             if (tag === 0x0002 && tiff + val + 24 <= len) {
-              lat = rat(val) + rat(val+8)/60 + rat(val+16)/3600;
+              // val is tiff-relative; absRat adds tiff itself
+              lat = absRat(val) + absRat(val+8)/60 + absRat(val+16)/3600;
             }
             if (tag === 0x0004 && tiff + val + 24 <= len) {
-              lon = rat(val) + rat(val+8)/60 + rat(val+16)/3600;
+              lon = absRat(val) + absRat(val+8)/60 + absRat(val+16)/3600;
             }
           }
           if (lat != null && latRef === "S") lat = -lat;
